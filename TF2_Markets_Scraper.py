@@ -80,7 +80,7 @@ def SteamPrices(item):
             highestbuy = "N/A"
             BOactualreturn = "N/A"
 
-        steamcommunity = ['Steam Community', lowestsell, LSactualreturn, highestbuy, BOactualreturn]
+        steamcommunity = ['Steam Community', lowestsell, highestbuy, LSactualreturn, BOactualreturn]
         return
 
 def MCPrices(name, driver):
@@ -114,7 +114,7 @@ def MCPrices(name, driver):
         BOactualreturn = highestbuyr.group(1).replace(",", "")
         highestbuy = "$" + "{:.2f}".format(float(BOactualreturn))
         BOactualreturn = "$" + str("{:.2f}".format(round((float(BOactualreturn) / 1.05) + .005, 2)))
-    Mannco_store = ['Mannco.store', lowestsell, LSactualreturn, highestbuy, BOactualreturn]
+    Mannco_store = ['Mannco.store', lowestsell, highestbuy, LSactualreturn, BOactualreturn]
     return
 
 def Mkt_tfPrices(name, driver):
@@ -156,14 +156,14 @@ def Mkt_tfPrices(name, driver):
         highestbuy = "$" + "{:.2f}".format(float(BOactualreturn))
         BOactualreturn = "$" + str("{:.2f}".format(round((float(BOactualreturn) / 1.10) + .005, 2)))
 
-    Marketplace_tf = ['Marketplace.tf', lowestsell, LSactualreturn, highestbuy, BOactualreturn]
+    Marketplace_tf = ['Marketplace.tf', lowestsell, highestbuy, LSactualreturn, BOactualreturn]
     return
 
 while True:
-    driver = uc.Chrome(headless=True, version_main=112) #initialize the driver while the user is inputting an item name
     itemname = input("Provide a Market Item Name:\n")
     try:
         SteamPrices(itemname)
+        driver = uc.Chrome(headless=True, version_main=112) #initialize the driver while the user is inputting an item name
         MCPrices(itemname, driver)
         Mkt_tfPrices(itemname, driver)
         driver.quit()
@@ -171,6 +171,6 @@ while True:
         driver.quit()
         raise Exception("Unhandled exception occured. Closing the driver.")
 
-    labels = ["Website", "Listing", "Listing (Revenue)", "Buy Order", "Buy Order (Revenue)"]
+    labels = ["Website", "Listing", "Buy Order", "Listing (Revenue)", "Buy Order (Revenue)"]
     for i in range(len(steamcommunity)):
         print("{:<20}{:<20}{:<20}{:<20}".format(labels[i], steamcommunity[i], Mannco_store[i], Marketplace_tf[i]))
