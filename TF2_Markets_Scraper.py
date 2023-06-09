@@ -26,7 +26,10 @@ def SteamPrices(item):
                 steamcommunity = ['Steam Community', 'No Marketid!', 'No Marketid!', 'No Marketid!', 'No Marketid!']
                 isUncraftable = False #This shouldn't matter because every item should have a marketid, but it's here just in case.
                 return
-            isUncraftable = bool(re.search(r'Not Usable in Crafting', response.text))
+            if re.search(r'Kit$', market_hash_name):
+                isUncraftable = True
+            else:
+                isUncraftable = bool(re.search(r'Not Usable in Crafting', response.text))
 
             #If we are searching for Unusual effects, we need to scrape from the Community Market's frontend. Backend doesn't support these parameters.
             #This also has a side-effect of showing each listing in the listers' native currency, which is a bit annoying. Would be cool to eventually convert these values.
