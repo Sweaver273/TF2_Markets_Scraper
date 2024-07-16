@@ -20,6 +20,8 @@ def GetItemAttributes(user_input):
         item_craftability = None
     else:
         item_craftability = m.group("craftability")
+        if item_craftability == "Uncraftable":
+            global isUncraftable = True #Quick fix
     
     r = re.compile("^.*?(?P<strange>Strange)")
     m = r.match(user_input)
