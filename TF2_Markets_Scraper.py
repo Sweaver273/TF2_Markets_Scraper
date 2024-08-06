@@ -1,6 +1,7 @@
 import requests
 import re
 import undetected_chromedriver as uc  #https://github.com/ultrafunkamsterdam/undetected-chromedriver
+import time
 
 def GetItemAttributes(user_input):
     #I decided to break the one large regular expression into multiple smaller ones, as it significantly improved matching accuracy.
@@ -20,8 +21,6 @@ def GetItemAttributes(user_input):
         item_craftability = None
     else:
         item_craftability = m.group("craftability")
-        if item_craftability == "Uncraftable":
-            global isUncraftable = True #Quick fix
     
     r = re.compile("^.*?(?P<strange>Strange)")
     m = r.match(user_input)
@@ -77,44 +76,46 @@ def GetItemAttributes(user_input):
         x = x.replace(item_killstreaker + " ", "")
     item_name = x
     
-    item = {"craftability": item_craftability, "effect": item_effect, "strange": item_strange, "quality": item_quality, "festivized": item_festivized, "killstreaker": item_killstreaker, "name": item_name}
-    return item
+    item_attributes = {"craftability": item_craftability, "effect": item_effect, "strange": item_strange, "quality": item_quality, "festivized": item_festivized, "killstreaker": item_killstreaker, "name": item_name}
+    return item_attributes
 
-def SteamPrices(item):
-    for key in item.keys():
+def SteamPrices(item_attributes):
+    for key in item_attributes.keys():
         if key == 'name':
             continue
-        elif item[key] != None:
-            item[key] += " "
+        elif item_attributes[key] != None:
+            item_attributes[key] += " "
         else:
-            item[key] = ""
+            item_attributes[key] = ""
 
-    market_hash_name = item['strange'] + item['quality'] + item['festivized'] + item['killstreaker'] + item['name']
+    market_hash_name = item_attributes['strange'] + item_attributes['quality'] + item_attributes['festivized'] + item_attributes['killstreaker'] + item_attributes['name']
     market_hash_url = "https://steamcommunity.com/market/listings/440/" + market_hash_name
-    if item['effect'] != "" or item['craftability'] == "Uncraftable ":
+    if item_attributes['effect'] != "" or item_attributes['craftability'] == "Uncraftable ":
         market_hash_url += "?filter="
-    if item['effect'] != "":
-        market_hash_url += item['effect']
-    if item['effect'] != "" and item['craftability'] == "Uncraftable ":
+    if item_attributes['effect'] != "":
+        market_hash_url += item_attributes['effect']
+    if item_attributes['effect'] != "" and item_attributes['craftability'] == "Uncraftable ":
         market_hash_url += " "
-    if item['craftability'] == "Uncraftable ":
+    if item_attributes['craftability'] == "Uncraftable ":
         market_hash_url += "Not Usable in Crafting"
     #TODO: Currently, it is impossible to directly ask for only craftable items from Steam. If we did one request for all and one for uncraftables, we could subtract out to find craftables only.
     print(market_hash_url)
 
     #Steam market GET request for item data
+    s = time.time()
     r = requests.get(market_hash_url)
+    print("[DBG] Steam - Front: " + str(round(time.time()-s,4)))
     assert r.status_code == 200
     marketid = re.search(r'Market_LoadOrderSpread.*?(\d+)', r.text)
     if marketid is None:
         steamcommunity = ['Steam Community', 'No Marketid!', 'No Marketid!', 'No Marketid!', 'No Marketid!']
-        return
+        return steamcommunity
     
     #If we are searching for Unusual effects/craftability, we need to scrape from the Community Market's frontend. The backend doesn't support these filtering parameters.
     #This also has a side-effect of showing each listing in the listers' native currency, which is a bit annoying. Fortunately, there are many public APIs that allow grabbing of currency conversion rates.
     #Unfortunately, this is a problem for another day.
     if market_hash_url.find("?filter=") != -1:
-        lowestsellr = re.search(r'market_listing_price market_listing_price_with_fee">[\s.]{6,}\s(?P<curr>\D*)?(?P<value>[\d\.\,\ ]*)(?P<curr2>\D*)?\s{5}<\/', response.text)
+        lowestsellr = re.search(r'market_listing_price market_listing_price_with_fee">[\s.]{6,}\s(?P<curr>\D*)?(?P<value>[\d\.\,\ ]*)(?P<curr2>\D*)?\s{5}<\/', r.text)
         if lowestsellr is None:
             lowestsell = "No Listings"
             LSactualreturn = "No Listings"
@@ -126,7 +127,9 @@ def SteamPrices(item):
 
     #Backend request
     if market_hash_url.find("?filter=") == -1:
+        s = time.time()
         r = requests.get(f"https://steamcommunity.com/market/priceoverview/?appid=440&currency=1&market_hash_name={market_hash_name}")
+        print("[DBG] Steam - Backend: " + str(round(time.time()-s,4)))
         assert r.status_code == 200 or r.status_code == 429
         if r.status_code == 429: #Ratelimits are more lenient here, presumably because it is requested a lot less
             lowestsell = "Ratelimited"
@@ -141,7 +144,9 @@ def SteamPrices(item):
                 LSactualreturn = "$" + str("{:.2f}".format(round((float(lowestsellr.group(1)) / 1.15) + .005, 2)))
 
     #Steam Buyorders - this backend link is the ONLY OPTION for grabbing buy order data. This has led to Steam HEAVILY ratelimiting this endpoint, which sucks for us.
+    s = time.time()
     r = requests.get(f"https://steamcommunity.com/market/itemordershistogram?country=US&language=english&currency=1&item_nameid={marketid.group(1)}&two_factor=0")
+    print("[DBG] Steam - BuyAPI: " + str(round(time.time()-s,4)))
     assert r.status_code == 200 or r.status_code == 429
     if r.status_code == 429: #Common outcome
             lowestsell = "Ratelimited"
@@ -159,21 +164,23 @@ def SteamPrices(item):
     steamcommunity = ['Steam Community', lowestsell, highestbuy, LSactualreturn, BOactualreturn]
     return steamcommunity
 
-def MCPrices(name, driver):
-    global Mannco_store
-
+def MCPrices(name, item_attributes, driver): #TODO: Less regex, more logic using item_attributes
     name = name.lower()
     name = name.replace(" ", "-")
     punc = '!()[]{};:\'\"\\,<>./?@#$%^&*_~'
     for ele in name:
         if ele in punc:
             name = name.replace(ele, "")
-    if isUncraftable == True:
+    if item_attributes['craftability'] == "Uncraftable" or item_attributes['name'].find("Kit") != -1:
         url = f"https://mannco.store/item/440-uncraftable-{name}"
     else:
         url = f"https://mannco.store/item/440-{name}"
+    print(url)
+    
+    s = time.time()
     driver.get(url)
-    print(f"{url}")
+    print("[DBG] Mannco: " + str(round(time.time()-s,4)))
+    
     lowestsellr = re.search(r'lowPrice": "(\d+\.\d{2})', driver.page_source)
     highestbuyr = re.search(r'Quantity(?:<.*>\s)*?<td>\$(\S{1,6}\.\d{2})', driver.page_source)
     if lowestsellr is None or lowestsellr.group(1) == "0.00": #this is the listed price if there are no listings - None is a failsafe
@@ -191,32 +198,47 @@ def MCPrices(name, driver):
         highestbuy = "$" + "{:.2f}".format(float(BOactualreturn))
         BOactualreturn = "$" + str("{:.2f}".format(round((float(BOactualreturn) / 1.05) + .005, 2)))
     Mannco_store = ['Mannco.store', lowestsell, highestbuy, LSactualreturn, BOactualreturn]
-    return
+    return Mannco_store
 
-def Mkt_tfPrices(name, driver):
-    global Marketplace_tf
-
-    isWeaponEffect = bool(re.search(r'Hot|Isotope|Cool|Energy Orb', name))
-    regex = r"^(?:(?P<effect>"+'|'.join(effects)+r")\s)?(?:(?P<quality>Vintage|Collectors|Strange Geniune|Strange Haunted|Genuine|Haunted|Strange)\s)?(?P<unusual>Unusual)?\s?(?:(?P<festivized>Festivized)\s)?(?:(?P<killstreak>Specialized|Professional|Basic Killstreak)\s)?(?P<item>.*)$"
-
-    name = re.sub(r"(Professional|Specialized) Killstreak", r"\1", name)
-    name = name.replace("Killstreak", "Basic Killstreak")
-    if isWeaponEffect == True:
-        name = re.sub(regex, r'\g<killstreak> \g<quality> ★\g<effect> \g<festivized> \g<item>', name)
-    else:
-        name = re.sub(regex, r'\g<killstreak> \g<quality> \g<effect> \g<festivized> \g<item>', name)
-    name = ' '.join(name.split())
-    if isUncraftable == True:
-        if name.find(" Kit") > -1:
-            url = f"https://marketplace.tf/items/tf2/{name}"
+def Mkt_tfPrices(name, item_attributes, driver):
+    isWeaponEffect = bool(re.search(r'Hot|Isotope|Cool|Energy Orb', item_attributes['effect']))
+    #regex = r"^(?:(?P<effect>"+'|'.join(effects)+r")\s)?(?:(?P<quality>Vintage|Collectors|Strange Geniune|Strange Haunted|Genuine|Haunted|Strange)\s)?(?P<unusual>Unusual)?\s?(?:(?P<festivized>Festivized)\s)?(?:(?P<killstreak>Specialized|Professional|Basic Killstreak)\s)?(?P<item>.*)$"
+    mktname = ""
+    
+    if item_attributes['craftability'] != "":
+        mktname += item_attributes['craftability']
+    
+    if item_attributes['killstreaker'] == "Professional Killstreak ":
+        mktname += "Professional "
+    elif item_attributes['killstreaker'] == "Specialized Killstreak ":
+        mktname += "Specialized "
+    elif item_attributes['killstreaker'] == "Killstreak ":
+        mktname += "Basic Killstreak " #Odd inconsistency but okay
+        
+    if item_attributes['strange'] != "":
+        mktname += "Strange "
+        
+    if item_attributes['quality'] != "":
+        mktname += item_attributes['quality']
+    
+    if item_attributes['effect'] != "":
+        if item_attributes['effect'] in ["Hot", "Isotope", "Cool", "Energy Orb"]:
+            mktname += "★" + item_attributes['effect']
         else:
-            url = f"https://marketplace.tf/items/tf2/Uncraftable {name}"
-    else:
-        url = f"https://marketplace.tf/items/tf2/{name}"
+            mktname += item_attributes['effect']
+
+    if item_attributes['festivized'] != "":
+        mktname += item_attributes['festivized']
+
+    mktname += item_attributes['name']
+    url = f"https://marketplace.tf/items/tf2/{mktname}"
+    print(url)
+    s = time.time()
     driver.get(url)
-    print(f"{url}")
-    lowestsellr = re.search(r'\$(\S{1,6}\.\d{2}) each', driver.page_source)
-    highestbuyr = re.search(r'Active Buy Orders<\/div>\s*<div class="ta(?:.*\s*){10}<td>\$(\S{1,5}\.\d{2})', driver.page_source)
+    #print("[DBG] Marketplace.tf: "+ str(round(time.time()-s,4)))
+
+    lowestsellr = re.search(r'<\/td>\s.*<td>\$(\d+\.\d{2})', driver.page_source)
+    highestbuyr = re.search(r'<tr>\s.*<td>\$(\d+\.\d{2})', driver.page_source)
     if lowestsellr is None:
         lowestsell = "No Listings"
         LSactualreturn = "No Listings"
@@ -233,21 +255,38 @@ def Mkt_tfPrices(name, driver):
         BOactualreturn = "$" + str("{:.2f}".format(round((float(BOactualreturn) / 1.10) + .005, 2)))
 
     Marketplace_tf = ['Marketplace.tf', lowestsell, highestbuy, LSactualreturn, BOactualreturn]
-    return
+    return Marketplace_tf
 
+IsDriverRunning = False
 while True:
     itemname = input("Provide a Market Item Name:\n")
-    item = GetItemAttributes(itemname)
-    SteamPrices(itemname)
-    #TODO: Review MCPrices and Mkt_tfPrices functions
+    s = time.time()
+    item_attributes = GetItemAttributes(itemname)
+    print("[DBG] Item attributes set.")
+    steamcommunity = SteamPrices(item_attributes)
     try:
-        driver = uc.Chrome(headless=True, version_main=112) #initialize the driver while the user is inputting an item name
-        MCPrices(itemname, driver)
-        Mkt_tfPrices(itemname, driver)
+        print("[DBG] Initializing driver")
+        driver = uc.Chrome(headless=False) #UC will send Chrome's 'headless' header to the destination site, which triggers cloudflare detection. There's probably an easy fix here.
+        
+        IsDriverRunning = True
+        print("[DBG] Driver initialized.")
+        Mannco_store = MCPrices(itemname, item_attributes, driver) #TODO: stop passing itemname, start using item_attributes
+        Marketplace_tf = Mkt_tfPrices(itemname, item_attributes, driver)
+        print("[DBG] Completed successfully in " + str(round(time.time-s,4)))
+        driver.close()
         driver.quit()
-    except:
-        driver.quit()
-        raise Exception("Unhandled exception occured. Closing the driver.")
+        IsDriverRunning = False
+    except KeyboardInterrupt:
+        if IsDriverRunning == True:
+            driver.close()
+            driver.quit()
+        break
+    except Exception as e:
+        print(e)
+        if IsDriverRunning == True:
+            driver.close()
+            driver.quit()
+        IsDriverRunning = False
 
     labels = ["Website", "Listing", "Buy Order", "Listing (Revenue)", "Buy Order (Revenue)"]
     for i in range(len(steamcommunity)):
