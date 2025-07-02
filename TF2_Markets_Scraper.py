@@ -1,6 +1,6 @@
 import requests
 import re
-import undetected_chromedriver as uc  #https://github.com/ultrafunkamsterdam/undetected-chromedriver
+import cloudscraper
 import time
 
 def GetItemAttributes(user_input):
@@ -114,12 +114,12 @@ def SteamPrices(item_attributes):
             market_filter += item_attributes['effect'] + "+"
     
     market_hash_url = "https://steamcommunity.com/market/listings/440/" + market_hash_name + market_filter
-    print(market_hash_url)
+    #print(market_hash_url)
 
     #Steam market GET request for item data
     s = time.time()
     r = requests.get(market_hash_url)
-    #print("[DBG] Steam - Front: " + str(round(time.time()-s,4)))
+    print("[INFO] Steam - Front: " + str(round((time.time()-s)*1000,0)) + " ms.")
     assert r.status_code == 200
     marketid = re.search(r'Market_LoadOrderSpread.*?(\d+)', r.text)
     if marketid is None:
@@ -139,12 +139,12 @@ def SteamPrices(item_attributes):
             lowestsell = lowestsell / 100
             LSactualreturn = lowestsellr.group('curr') + str("{:.2f}".format(round((float(lowestsell) / 1.15) + .005, 2))) + lowestsellr.group('curr2')
             lowestsell = lowestsellr.group('curr') + "{0:.2f}".format(lowestsell) + lowestsellr.group('curr2')
-
+    
     #Backend request - only use if no filters are being applied.
     if market_hash_url.find("?filter=") == -1:
         s = time.time()
         r = requests.get(f"https://steamcommunity.com/market/priceoverview/?appid=440&currency=1&market_hash_name={market_hash_name}")
-        #print("[DBG] Steam - Backend: " + str(round(time.time()-s,4)))
+        print("[INFO] Steam - Backend: " + str(round((time.time()-s)*1000,0)) + " ms.")
         assert r.status_code == 200 or r.status_code == 429
         if r.status_code == 429: #Ratelimits are more lenient here, presumably because it is requested a lot less
             lowestsell = "Ratelimited"
@@ -157,15 +157,16 @@ def SteamPrices(item_attributes):
             else:
                 lowestsell = "$" + "{:.2f}".format(float(lowestsellr.group(1)))
                 LSactualreturn = "$" + str("{:.2f}".format(round((float(lowestsellr.group(1)) / 1.15) + .005, 2)))
-
+    
     #Steam Buyorders - this backend link is the ONLY OPTION for grabbing buy order data. This has led to Steam HEAVILY ratelimiting this endpoint, which sucks for us.
     s = time.time()
     r = requests.get(f"https://steamcommunity.com/market/itemordershistogram?country=US&language=english&currency=1&item_nameid={marketid.group(1)}&two_factor=0")
-    #print("[DBG] Steam - BuyAPI: " + str(round(time.time()-s,4)))
+    print("[INFO] Steam - BuyAPI: " + str(round((time.time()-s)*1000,0)) + " ms.")
     assert r.status_code == 200 or r.status_code == 429
-    if r.status_code == 429: #Common outcome
+    if r.status_code == 429: #Hit the ratelimit, which is actually pretty common.
             lowestsell = "Ratelimited"
             LSactualreturn = "Ratelimited"
+    
     else:
         highestbuyr = re.search(r'to buy at.*?\$(\S{1,6}\.\d{2})', r.text)
         if highestbuyr is None:
@@ -176,11 +177,12 @@ def SteamPrices(item_attributes):
             highestbuy = "$" + "{:.2f}".format(float(BOactualreturn))
             BOactualreturn = "$" + str("{:.2f}".format(round((float(BOactualreturn) / 1.15) + .005, 2)))
 
-    steamcommunity = ['Steam Community', lowestsell, highestbuy, LSactualreturn, BOactualreturn]
+    steamcommunity = ['Steam Community', lowestsell, highestbuy, LSactualreturn, BOactualreturn] #This should really just be a dict
     return steamcommunity
 
-def MCPrices(item_attributes, driver): #TODO: Less regex, more logic using item_attributes. In-progress.
+def MCPrices(item_attributes):
     item_urlname = ""
+    
     #Run-through all attributes, adjusting for any website-specific handling.
     if item_attributes['craftability'] == "Uncraftable": #mannco handles craftability by presence of the 'uncraftable' attribute.
         item_urlname += item_attributes['craftability'] + "-"
@@ -194,27 +196,25 @@ def MCPrices(item_attributes, driver): #TODO: Less regex, more logic using item_
         item_urlname += item_attributes['festivized'] + "-"
     if item_attributes['killstreaker'] != None:
         item_urlname += item_attributes['killstreaker'] + "-"
-        
     item_urlname += item_attributes['name']
     
-    #print(f"[DBG] Mannco urlname before: {item_urlname}")
+    #Adjust to Mannco's formatting.
     item_urlname = item_urlname.lower()
     item_urlname = item_urlname.replace(" ", "-") #Some items have spaces that mannco wants coverted to dashes.
     punc = '!()[]{};:\'\"\\,<>./?@#$%^&*_~'
     for ele in item_urlname:
         if ele in punc:
             item_urlname = item_urlname.replace(ele, "") #Mannco discards punctuation from URL encoding.
- 
-    #print(f"[DBG] Mannco: {item_urlname}")
+    
     url = f"https://mannco.store/item/440-{item_urlname}"
-    print(url)
-    
+    #print(url)
     s = time.time()
-    driver.get(url)
-    print("[DBG] Mannco responded in: " + str(round((time.time()-s)*1000,2)) + " ms.")
+    r = crequests.get(url)
+    assert r.status_code == 200
+    print("[INFO] Mannco responded in: " + str(round((time.time()-s)*1000,0)) + " ms.")
     
-    lowestsellr = re.search(r'lowPrice": "(\d+\.\d{2})', driver.page_source)
-    highestbuyr = re.search(r'Quantity(?:<.*>\s)*?<td>\$(\S{1,6}\.\d{2})', driver.page_source)
+    lowestsellr = re.search(r'lowPrice": "(\d+\.\d{2})', r.text)
+    highestbuyr = re.search(r'Quantity(?:<.*>\s)*?<td>\$(\S{1,6}\.\d{2})', r.text)
     if lowestsellr is None or lowestsellr.group(1) == "0.00": #this is the listed price if there are no listings - None is a failsafe
         lowestsell = "No Listings"
         LSactualreturn = "No Listings"
@@ -229,13 +229,13 @@ def MCPrices(item_attributes, driver): #TODO: Less regex, more logic using item_
         BOactualreturn = highestbuyr.group(1).replace(",", "")
         highestbuy = "$" + "{:.2f}".format(float(BOactualreturn))
         BOactualreturn = "$" + str("{:.2f}".format(round((float(BOactualreturn) / 1.05) + .005, 2)))
-    Mannco_store = ['Mannco.store', lowestsell, highestbuy, LSactualreturn, BOactualreturn]
+    Mannco_store = ['Mannco.store', lowestsell, highestbuy, LSactualreturn, BOactualreturn] #This should really just be a dict
     return Mannco_store
 
-def Mkt_tfPrices(item_attributes, driver):
+def Mkt_tfPrices(item_attributes):
     mktname = ""
-    #Run-through all attributes, adjusting for any website-specific handling.
     
+    #Run-through all attributes, adjusting for any website-specific handling.
     if item_attributes['craftability'] == "Uncraftable" and item_attributes['name'].find("Kit") == -1:
         mktname += "Uncraftable "
     if item_attributes['killstreaker'] == "Professional Killstreak":
@@ -250,7 +250,7 @@ def Mkt_tfPrices(item_attributes, driver):
         mktname += item_attributes['quality']
     if item_attributes['effect'] != None:
         if item_attributes['effect'] in ["Hot", "Isotope", "Cool", "Energy Orb"]: #Watch out for new weapon unusual effects.
-            mktname += "%E2%98%85" + item_attributes['effect'] + " "
+            mktname += "%E2%98%85" + item_attributes['effect'] + " " #The interpreter wasn't rendering unicode when I tested it, so put URL encoding here just to be safe.
         else:
             mktname += item_attributes['effect'] + " "
     if item_attributes['festivized'] != None:
@@ -259,13 +259,14 @@ def Mkt_tfPrices(item_attributes, driver):
     mktname += item_attributes['name']
     
     url = f"https://marketplace.tf/items/tf2/{mktname}"
-    print(url)
+    #print(url)
     s = time.time()
-    driver.get(url)
-    print("[DBG] mp.tf responded in: "+ str(round((time.time()-s)*1000,2)) + " ms.")
+    r = crequests.get(url)
+    assert r.status_code == 200
+    print("[INFO] mp.tf responded in: "+ str(round((time.time()-s)*1000,0)) + " ms.")
 
-    lowestsellr = re.search(r'<\/td>\s.*<td>\$(\d{1,3}(?:,\d{3})*(?:\.\d+)?)', driver.page_source)
-    highestbuyr = re.search(r'<tr>\s.*<td>\$(\d{1,3}(?:,\d{3})*(?:\.\d+)?)', driver.page_source)
+    lowestsellr = re.search(r'<\/td>\s.*<td>\$(\d{1,3}(?:,\d{3})*(?:\.\d+)?)', r.text)
+    highestbuyr = re.search(r'<tr>\s.*<td>\$(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',  r.text)
     if lowestsellr is None:
         lowestsell = "No Listings"
         LSactualreturn = "No Listings"
@@ -281,41 +282,21 @@ def Mkt_tfPrices(item_attributes, driver):
         highestbuy = "$" + "{:.2f}".format(float(BOactualreturn))
         BOactualreturn = "$" + str("{:.2f}".format(round((float(BOactualreturn) / 1.10) + .005, 2)))
 
-    Marketplace_tf = ['Marketplace.tf', lowestsell, highestbuy, LSactualreturn, BOactualreturn]
+    Marketplace_tf = ['Marketplace.tf', lowestsell, highestbuy, LSactualreturn, BOactualreturn] #This should really just be a dict
     return Marketplace_tf
 
-IsDriverRunning = False
+#IsDriverRunning = False
+crequests = cloudscraper.create_scraper(browser='chrome')
 while True:
     itemname = input("Provide a Market Item Name:\n")
     s = time.time()
     item_attributes = GetItemAttributes(itemname)
     print(item_attributes)
-    try:
-        steamcommunity = SteamPrices(item_attributes)
-        print("[DBG] Initializing driver")
-        driver = uc.Chrome(headless=False)
-        
-        IsDriverRunning = True
-        print("[DBG] Driver initialized.")
-        Mannco_store = MCPrices(item_attributes, driver)
-        Marketplace_tf = Mkt_tfPrices(item_attributes, driver)
-        print("[DBG] Completed successfully in " + str(round(time.time()-s,2)) + " sec.")
-        driver.close()
-        driver.quit()
-        IsDriverRunning = False
-    except KeyboardInterrupt:
-        print("[DBG] KeyboardInterrupt detected, closing driver.")
-        if IsDriverRunning == True:
-            driver.close()
-            driver.quit()
-        break
-    #except Exception as e:
-    #    print("[DBG] GenericException detected, closing driver.")
-    #    print(e)
-    #    if IsDriverRunning == True:
-    #        driver.close()
-    #        driver.quit()
-    #    IsDriverRunning = False
+    steamcommunity = SteamPrices(item_attributes)
+    Mannco_store = MCPrices(item_attributes)
+    Marketplace_tf = Mkt_tfPrices(item_attributes)
+    print("[INFO] Item lookup was completed successfully in " + str(round(time.time()-s,2)) + " sec.")
+
 
     labels = ["Website", "Listing", "Buy Order", "Listing (Revenue)", "Buy Order (Revenue)"]
     for i in range(len(steamcommunity)):
